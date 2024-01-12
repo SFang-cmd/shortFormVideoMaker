@@ -6,7 +6,7 @@ bgdClip = "background.mov"
 script = "This is my test script"
 
 
-rr = RedditReader.redditReader("7pQOH7DGpC8RnPP-0vGL8Q", "	bl1ScELhHOUi-IuswvcCkwgMWrRK4Q", "User-Agent: mac:com.beanboi9001.redditstoryscript:v1.0 (by /u/beanboi9001)")
+rr = RedditReader.redditReader()
 
 print(rr.isReadOnly())
 
