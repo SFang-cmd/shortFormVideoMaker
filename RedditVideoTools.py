@@ -1,7 +1,7 @@
 # Reddit Story Compiler with Interface
 # By: Sean Fang
 
-from TTSSys import *
+from TTSSys import tts
 from moviepy.editor import *
 from PIL import Image, ImageDraw, ImageFont
 import RedditReader
@@ -10,6 +10,12 @@ import math
 import whisper_timestamped
 import re
 import os
+from bark import SAMPLE_RATE, generate_audio, preload_models
+from scipy.io.wavfile import write as write_wav
+from IPython.display import Audio
+import os
+
+os.environ["SUNO_ENABLE_MPS"] = "True"
 
 # removing characters that might mess with the TikTokTTS API
 def remove_non_ascii_1(text):
@@ -68,6 +74,93 @@ def draw_thumbnail(pfp, name, tag_name, tag_addons, text, output_path):
     image.save(output_path)
 
 
+def tiktokGenAudio(title, script):
+        # splits the script into a list of segments that can be fed into the TTS system
+        # note: this is necessary because the TTS can only process 300 tokens at a time,
+        # so this is done to reduce the number of random pauses inside the reading
+        list_script = re.split("[.!?]", script)
+
+        # Chooses a voice to use
+        voice = "en_us_010"
+        # en_female_emotional
+        # uses a tik tok text-to-speech api python wrapper to read out the title
+        tts(title, voice, "tempAudioStorage/title.mp3", play_sound=True)
+        # saves audio file to variable
+        title_audio = AudioFileClip("tempAudioStorage/title.mp3")
+
+        # feeds the tik tok tts api each sentence and saves the output to a file (in order)
+        audio_list = []
+        total_duration = 0
+        sentenceNo = 1
+        for sentence in list_script:
+            in_sentence = sentence.strip()
+            if (len(in_sentence) > 0) and has_letters(in_sentence): # To account for empty strings (since this will break the api)
+                tts(in_sentence, voice, "tempAudioStorage/script" + str(sentenceNo) + ".mp3", play_sound=True)
+                audio_list.append(AudioFileClip("tempAudioStorage/script" + str(sentenceNo) + ".mp3").set_start(total_duration,change_end=True))
+                # Uses this to prevent all audio to be played immediately
+                total_duration += (AudioFileClip("tempAudioStorage/script" + str(sentenceNo) + ".mp3")).duration
+                sentenceNo += 1
+
+        # Composites all the text audio together
+        comp_audio = CompositeAudioClip(audio_list)
+        # preps text audio to combine with title audio
+        script_audio = comp_audio.set_start(title_audio.duration + 1)
+        # combines all the audio together
+        script_audio = CompositeAudioClip([title_audio, script_audio])
+
+        return title_audio, script_audio, total_duration
+
+def sunoBarkGenAudio(title, script):
+    # download and load all models
+    preload_models()
+
+    # generate audio from text
+    list_script = re.split("[.!?]", script)
+    text_prompt = script
+
+    #load one of the voices
+    voice = "v2/en_speaker_9"
+    # generate title audio
+    audio_array = generate_audio(title, history_prompt=voice, waveform_temp=0.3, text_temp=0.3)
+
+    # save title audio to disk
+    write_wav("tempAudioStorage/title.wav", SAMPLE_RATE, audio_array)
+
+    # feeds the tik tok tts api each sentence and saves the output to a file (in order)
+    # generate script audio and save to file
+    audio_list = []
+    total_duration = 0
+    sentenceNo = 1
+
+    print(script)
+    print(list_script)
+
+    for sentence in list_script:
+        in_sentence = sentence.strip()
+        if (len(in_sentence) > 0) and has_letters(in_sentence): # To account for empty strings (since this will break the api)\
+            audio_array = generate_audio(sentence, history_prompt=voice)
+            write_wav("tempAudioStorage/script" + str(sentenceNo) + ".mp3", SAMPLE_RATE, audio_array)
+
+            audio_list.append(AudioFileClip("tempAudioStorage/script" + str(sentenceNo) + ".mp3").set_start(total_duration,change_end=True))
+            # Uses this to prevent all audio to be played immediately
+            total_duration += (AudioFileClip("tempAudioStorage/script" + str(sentenceNo) + ".mp3")).duration
+            sentenceNo += 1
+
+    title_audio = AudioFileClip("tempAudioStorage/title.wav")
+
+    # Composites all the text audio together
+    comp_audio = CompositeAudioClip(audio_list)
+
+    # Composites all the text audio together
+    comp_audio = CompositeAudioClip(audio_list)
+    # preps text audio to combine with title audio
+    script_audio = comp_audio.set_start(title_audio.duration + 1)
+    # combines all the audio together
+    script_audio = CompositeAudioClip([title_audio, script_audio])
+
+    return title_audio, script_audio, total_duration
+    
+
 def generateVid(number, subreddit, time):
     # creates an instance of a reddit reader
     rr = RedditReader.redditReader()
@@ -95,38 +188,10 @@ def generateVid(number, subreddit, time):
         script = re.sub('#', 'number', script)
         # Removes starting and trailing spaces
         script = script.strip()
-        # splits the script into a list of segments that can be fed into the TTS system
-        # note: this is necessary because the TTS can only process 300 tokens at a time,
-        # so this is done to reduce the number of random pauses inside the reading
-        list_script = re.split("[.!?]", script)
 
-        # Chooses a voice to use
-        voice = "en_us_010"
-        # en_female_emotional
-        # uses a tik tok text-to-speech api python wrapper to read out the title
-        tts(title, voice, "tempAudioStorage/title.mp3", play_sound=True)
-        # saves audio to file
-        title_audio = AudioFileClip("tempAudioStorage/title.mp3")
+        # Generates audio using some tts API, either sunoBarkGenAudio or tiktokGenAudio functions
+        title_audio, script_audio, total_duration = sunoBarkGenAudio(title=title, script=script)
 
-        # feeds the tik tok tts api each sentence and saves the output to a file (in order)
-        audio_list = []
-        total_duration = 0
-        sentenceNo = 1
-        for sentence in list_script:
-            in_sentence = sentence.strip()
-            if (len(in_sentence) > 0) and has_letters(in_sentence): # To account for empty strings (since this will break the api)
-                tts(in_sentence, voice, "tempAudioStorage/script" + str(sentenceNo) + ".mp3", play_sound=True)
-                audio_list.append(AudioFileClip("tempAudioStorage/script" + str(sentenceNo) + ".mp3").set_start(total_duration,change_end=True))
-                # Uses this to prevent all audio to be played immediately
-                total_duration += (AudioFileClip("tempAudioStorage/script" + str(sentenceNo) + ".mp3")).duration
-                sentenceNo += 1
-
-        # Composites all the text audio together
-        comp_audio = CompositeAudioClip(audio_list)
-        # preps text audio to combine with title audio
-        script_audio = comp_audio.set_start(title_audio.duration + 1)
-        # combines all the audio together
-        script_audio = CompositeAudioClip([title_audio, script_audio])
         # writes audio to file to prepare for caption processing
         script_audio.write_audiofile("tempAudioStorage/video_audio_temp.mp3",fps=44100)
         # computes the length of the total video so that background clip/music can be added
@@ -135,7 +200,7 @@ def generateVid(number, subreddit, time):
         music_audio = AudioFileClip("backgroundMusic/bgd2.mp3")
         if music_audio.duration > length:
             music_audio = music_audio.set_duration(length + 2)
-        music_audio = music_audio.volumex(0.5)
+        music_audio = music_audio.volumex(0.35)
         # composites the music onto the narration
         total_audio = CompositeAudioClip([title_audio, script_audio, music_audio])
 
@@ -151,7 +216,7 @@ def generateVid(number, subreddit, time):
         # sets the audio to the reddit audio
         no_caption_clip = no_caption_clip.set_audio(total_audio)
 
-        # Processes the speach to create captions using whisper_timestamped model
+        # Processes the speech to create captions using whisper_timestamped model
         model = whisper_timestamped.load_model("base")
         result = model.transcribe("tempAudioStorage/video_audio_temp.mp3",word_timestamps=True)
         segments = result["segments"]
@@ -167,7 +232,7 @@ def generateVid(number, subreddit, time):
                                     fontsize=72,
                                     font=".SF-Compact-Bold", 
                                     stroke_color="black", 
-                                    stroke_width=4,
+                                    stroke_width=3.5,
                                     method="caption",
                                     color="white")
                                     .set_position(("center","center")))

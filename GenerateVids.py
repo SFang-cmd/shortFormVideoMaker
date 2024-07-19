@@ -1,3 +1,3 @@
 import RedditVideoTools
 
-RedditVideoTools.generateVid(100, "pettyrevenge", "year")
+RedditVideoTools.generateVid(5, "pettyrevenge", "month")
